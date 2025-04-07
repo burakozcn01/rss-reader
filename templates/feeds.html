@@ -69,7 +69,6 @@
             </thead>
             <tbody>
                 {% if feeds %}
-                    {# Önce hatalı feed'leri listele #}
                     {% for feed in feeds if feed.parsing_error_count > 0 %}
                     <tr class="table-danger">
                         <td>
@@ -144,7 +143,6 @@
                     </tr>
                     {% endfor %}
                     
-                    {# Sonra hatasız feed'leri listele #}
                     {% for feed in feeds if feed.parsing_error_count == 0 %}
                     <tr {% if feed.disabled %}class="table-secondary"{% endif %}>
                         <td>
@@ -256,7 +254,6 @@
 
 {% block extra_css %}
 <style>
-    /* Hatalı feed satırlarına efekt ekle */
     .table-danger {
         border-left: 5px solid #dc3545;
     }
