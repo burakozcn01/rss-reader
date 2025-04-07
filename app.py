@@ -5,22 +5,31 @@ import base64
 import hashlib
 import random
 import sys
+import threading
+import functools
+import feedparser
+import ssl
+import sqlite3
+import atexit
+import requests
+import logging
+import io
+
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
 from datetime import datetime, UTC
 from functools import wraps
 from urllib.parse import urlparse
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, g
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, g, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-import feedparser
-import ssl
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 from bs4 import BeautifulSoup
-import requests
 from time import mktime
 from sqlalchemy import func
-import logging
 from apscheduler.schedulers.background import BackgroundScheduler
-import sqlite3
-import atexit
+
 
 if hasattr(ssl, '_create_unverified_context'):
     ssl._create_default_https_context = ssl._create_unverified_context
@@ -46,9 +55,16 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:/
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['FEED_UPDATE_INTERVAL'] = 30
 app.config['DEFAULT_API_KEY'] = os.environ.get('DEFAULT_API_KEY', 'api-key-buraya')
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Bu sayfayı görüntülemek için giriş yapmalısınız.'
+login_manager.login_message_category = 'warning'
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
+
+active_threads = {}
 
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
@@ -82,10 +98,25 @@ def api_auth_required(f):
         if key:
             key.last_used = datetime.now(UTC)
             db.session.commit()
-            
+        
         return f(*args, **kwargs)
     return decorated
 
+class User(db.Model, UserMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=True)
+    is_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(UTC))
+    last_login = db.Column(db.DateTime, nullable=True)
+    
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+        
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+    
 class APIKey(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(100), unique=True, nullable=False)
@@ -295,6 +326,19 @@ def clean_html(html_content):
         logger.error(f"HTML temizleme hatası: {str(e)}")
         return html_content
 
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+def admin_required(f):
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            flash('Bu işlemi gerçekleştirmek için admin haklarına sahip olmalısınız.', 'error')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 def extract_content(entry):
     if 'content' in entry and entry.content:
         for content in entry.content:
@@ -401,18 +445,6 @@ def get_realistic_headers(feed_url):
     
     headers = {
         'User-Agent': user_agent,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
-        'Referer': f'https://www.google.com/search?q={domain}',
-        'DNT': '1',
     }
     
     return headers
@@ -504,6 +536,7 @@ def fetch_feed(feed_obj):
             auth=auth, 
             timeout=30, 
             verify=False,
+            allow_redirects=True,
             proxies=get_proxy_for_feed(feed_obj.id)
         )
         response.raise_for_status()
@@ -624,6 +657,186 @@ def fetch_all_feeds():
     logger.info(f"Feed güncelleme tamamlandı: {updated_feeds}/{total_feeds} feed güncellendi, toplam {total_new_entries} yeni yazı")
     return updated_feeds, total_new_entries
 
+def generate_opml(user_id=None):
+    """Mevcut feed'leri ve kategorileri OPML formatında XML dosyasına dönüştürür"""
+    root = ET.Element('opml')
+    root.set('version', '1.0')
+    
+    head = ET.SubElement(root, 'head')
+    title = ET.SubElement(head, 'title')
+    title.text = 'RSS Feed Export'
+    date_created = ET.SubElement(head, 'dateCreated')
+    date_created.text = datetime.now(UTC).strftime('%a, %d %b %Y %H:%M:%S %z')
+    
+    body = ET.SubElement(root, 'body')
+    
+    categories = Category.query.all()
+    
+    for category in categories:
+        cat_outline = ET.SubElement(body, 'outline')
+        cat_outline.set('text', category.title)
+        cat_outline.set('title', category.title)
+        
+        feeds = Feed.query.filter_by(category_id=category.id, disabled=False).all()
+        for feed in feeds:
+            feed_outline = ET.SubElement(cat_outline, 'outline')
+            feed_outline.set('text', feed.title)
+            feed_outline.set('title', feed.title)
+            feed_outline.set('type', 'rss')
+            feed_outline.set('xmlUrl', feed.feed_url)
+            if feed.site_url:
+                feed_outline.set('htmlUrl', feed.site_url)
+    
+    uncategorized_feeds = Feed.query.filter_by(category_id=None, disabled=False).all()
+    if uncategorized_feeds:
+        uncat_outline = ET.SubElement(body, 'outline')
+        uncat_outline.set('text', 'Kategorisiz')
+        uncat_outline.set('title', 'Kategorisiz')
+        
+        for feed in uncategorized_feeds:
+            feed_outline = ET.SubElement(uncat_outline, 'outline')
+            feed_outline.set('text', feed.title)
+            feed_outline.set('title', feed.title)
+            feed_outline.set('type', 'rss')
+            feed_outline.set('xmlUrl', feed.feed_url)
+            if feed.site_url:
+                feed_outline.set('htmlUrl', feed.site_url)
+    
+    xml_str = ET.tostring(root, encoding='utf-8')
+    parsed_xml = minidom.parseString(xml_str)
+    pretty_xml = parsed_xml.toprettyxml(indent="  ", encoding='utf-8')
+    
+    return pretty_xml
+
+def process_opml_file(file_content):
+    """OPML dosyasını parse eder ve feed'leri içe aktarır."""
+    try:
+        root = ET.fromstring(file_content)
+        
+        stats = {
+            'imported': 0,
+            'skipped': 0,
+            'failed': 0,
+            'categories': 0
+        }
+        
+        category_cache = {}
+        
+        body = root.find('body')
+        if body is None:
+            flash('Geçersiz OPML dosyası: body elementi bulunamadı.', 'error')
+            return stats
+        
+        for outline in body.findall('outline'):
+            if outline.get('xmlUrl') is None:
+                category_title = outline.get('title') or outline.get('text', 'İsimsiz Kategori')
+                
+                if category_title in category_cache:
+                    category = category_cache[category_title]
+                else:
+                    existing_category = Category.query.filter_by(title=category_title).first()
+                    if existing_category:
+                        category = existing_category
+                    else:
+                        category = Category(title=category_title)
+                        db.session.add(category)
+                        db.session.flush() 
+                        stats['categories'] += 1
+                        
+                    category_cache[category_title] = category
+                
+                for feed_outline in outline.findall('outline'):
+                    stats = process_feed_outline(feed_outline, category.id, stats)
+            else:
+                stats = process_feed_outline(outline, None, stats)
+        
+        db.session.commit()
+        return stats
+        
+    except ET.ParseError as e:
+        flash(f'OPML dosyası ayrıştırılamadı: {str(e)}', 'error')
+        return stats
+    except Exception as e:
+        db.session.rollback()
+        flash(f'OPML içe aktarma hatası: {str(e)}', 'error')
+        return stats
+
+def process_feed_outline(outline, category_id, stats):
+    """Bir feed outline elementini işler ve veritabanına ekler."""
+    feed_url = outline.get('xmlUrl')
+    if not feed_url:
+        stats['failed'] += 1
+        return stats
+    
+    existing_feed = Feed.query.filter_by(feed_url=feed_url).first()
+    if existing_feed:
+        stats['skipped'] += 1
+        return stats
+    
+    title = outline.get('title') or outline.get('text', 'İsimsiz Feed')
+    site_url = outline.get('htmlUrl')
+    
+    try:
+        new_feed = Feed(
+            title=title,
+            feed_url=feed_url,
+            site_url=site_url,
+            category_id=category_id
+        )
+        db.session.add(new_feed)
+        db.session.flush()
+        stats['imported'] += 1
+    except Exception as e:
+        logger.error(f"Feed eklenirken hata: {str(e)}")
+        stats['failed'] += 1
+    
+    return stats
+
+def async_fetch_feed(feed_id):
+    """Feed'i asenkron olarak günceller."""
+    with app.app_context():
+        try:
+            feed = Feed.query.get(feed_id)
+            if not feed:
+                logger.error(f"Feed bulunamadı (ID: {feed_id})")
+                return {"status": "error", "feed_id": feed_id, "error": "Feed bulunamadı"}
+                
+            feed_data = fetch_feed(feed)
+            result = {"status": "success", "feed_id": feed_id, "entry_count": 0}
+            
+            if feed_data:
+                entry_count = add_feed_entries(feed, feed_data)
+                result["entry_count"] = entry_count
+                logger.info(f"Asenkron feed güncelleme tamamlandı: {feed.title} - {entry_count} yeni yazı")
+            else:
+                result["status"] = "no_entries"
+                logger.info(f"Asenkron feed güncelleme tamamlandı: {feed.title} - Yeni yazı bulunamadı")
+                
+            return result
+        except Exception as e:
+            logger.error(f"Asenkron feed güncelleme hatası: {str(e)}")
+            return {"status": "error", "feed_id": feed_id, "error": str(e)}
+
+def async_fetch_all_feeds():
+    """Tüm feed'leri asenkron olarak günceller."""
+    with app.app_context():
+        try:
+            updated_feeds, total_new_entries = fetch_all_feeds()
+            logger.info(f"Asenkron tüm feed'lerin güncellenmesi tamamlandı: {updated_feeds} feed, {total_new_entries} yeni yazı")
+            return {"status": "success", "updated_feeds": updated_feeds, "total_entries": total_new_entries}
+        except Exception as e:
+            logger.error(f"Asenkron tüm feed'leri güncelleme hatası: {str(e)}")
+            return {"status": "error", "error": str(e)}
+
+def clean_finished_threads():
+    to_remove = []
+    for thread_key, thread in active_threads.items():
+        if not thread.is_alive():
+            to_remove.append(thread_key)
+    
+    for key in to_remove:
+        del active_threads[key]
+
 scheduler = None
 
 def fetch_all_feeds_with_context():
@@ -668,17 +881,66 @@ def setup_initial_config():
         db.session.add(default_category)
         db.session.commit()
         logger.info("Varsayılan kategori oluşturuldu")
+        
+    if not User.query.first():
+        admin_user = User(
+            username="admin",
+            email="admin@example.com",
+            is_admin=True
+        )
+        admin_user.set_password("password123") 
+        db.session.add(admin_user)
+        db.session.commit()
+        logger.info("Varsayılan admin kullanıcısı oluşturuldu")
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+        
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        remember_me = 'remember_me' in request.form
+        
+        user = User.query.filter_by(username=username).first()
+        
+        if user and user.check_password(password):
+            login_user(user, remember=remember_me)
+            user.last_login = datetime.now(UTC)
+            db.session.commit()
+            
+            next_page = request.args.get('next')
+            if not next_page or not next_page.startswith('/'):
+                next_page = url_for('index')
+                
+            flash(f'Hoş geldiniz, {user.username}!', 'success')
+            return redirect(next_page)
+        else:
+            flash('Kullanıcı adı veya şifre hatalı.', 'error')
+            
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('Başarıyla çıkış yaptınız.', 'success')
+    return redirect(url_for('login'))
 
 @app.route('/')
+@login_required
 def index():
     return redirect(url_for('feeds'))
 
 @app.route('/categories', methods=['GET'])
+@login_required
 def categories():
     categories = Category.query.all()
     return render_template('categories.html', categories=categories)
 
 @app.route('/categories/add', methods=['GET', 'POST'])
+@login_required
 def add_category():
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
@@ -697,6 +959,7 @@ def add_category():
     return render_template('add_category.html')
 
 @app.route('/categories/<int:category_id>/edit', methods=['GET', 'POST'])
+@login_required
 def edit_category(category_id):
     category = Category.query.get_or_404(category_id)
     
@@ -716,6 +979,7 @@ def edit_category(category_id):
     return render_template('edit_category.html', category=category)
 
 @app.route('/categories/<int:category_id>/delete', methods=['POST'])
+@login_required
 def delete_category(category_id):
     category = Category.query.get_or_404(category_id)
     
@@ -729,6 +993,7 @@ def delete_category(category_id):
     return redirect(url_for('categories'))
 
 @app.route('/feeds', methods=['GET'])
+@login_required
 def feeds():
     show_disabled = 'show_disabled' in request.args
     
@@ -743,6 +1008,7 @@ def feeds():
     return render_template('feeds.html', feeds=feeds, categories=categories, show_disabled=show_disabled)
 
 @app.route('/feeds/add', methods=['GET', 'POST'])
+@login_required
 def add_feed():
     categories = Category.query.all()
     
@@ -809,6 +1075,7 @@ def add_feed():
     return render_template('add_feed.html', categories=categories)
 
 @app.route('/feeds/<int:feed_id>/edit', methods=['GET', 'POST'])
+@login_required
 def edit_feed(feed_id):
     feed = Feed.query.get_or_404(feed_id)
     categories = Category.query.all()
@@ -840,23 +1107,28 @@ def edit_feed(feed_id):
     return render_template('edit_feed.html', feed=feed, categories=categories)
 
 @app.route('/feeds/<int:feed_id>/refresh', methods=['POST'])
+@login_required
 def refresh_feed(feed_id):
     feed = Feed.query.get_or_404(feed_id)
     
-    try:
-        feed_data = fetch_feed(feed)
-        if feed_data:
-            entry_count = add_feed_entries(feed, feed_data)
-            flash(f'Feed güncellendi. {entry_count} yeni yazı bulundu.', 'success')
-        else:
-            flash('Feed güncellendi ancak yeni yazı bulunmadı.', 'info')
-    except Exception as e:
-        flash(f'Feed güncellenirken hata oluştu: {str(e)}', 'error')
+    thread_key = f"feed_{feed_id}"
+    if thread_key in active_threads and active_threads[thread_key].is_alive():
+        flash(f'Feed zaten güncelleniyor. İşlem arka planda devam ediyor.', 'info')
+    else:
+        thread = threading.Thread(target=async_fetch_feed, args=(feed_id,))
+        thread.daemon = True 
+        thread.start()
+        
+        active_threads[thread_key] = thread
+        
+        flash(f'Feed güncelleme işlemi başlatıldı. Arka planda devam ediyor.', 'info')
+        logger.info(f"Feed için asenkron güncelleme başlatıldı: {feed.title} (ID: {feed_id})")
     
     next_url = request.args.get('next', url_for('feeds'))
     return redirect(next_url)
 
 @app.route('/feeds/<int:feed_id>/delete', methods=['POST'])
+@login_required
 def delete_feed(feed_id):
     feed = Feed.query.get_or_404(feed_id)
     
@@ -867,25 +1139,38 @@ def delete_feed(feed_id):
     return redirect(url_for('feeds'))
 
 @app.route('/refresh_all', methods=['POST'])
+@login_required
 def refresh_all_feeds():
-    updated_feeds, total_new_entries = fetch_all_feeds()
-    
-    flash(f'Tüm feed\'ler güncellendi. {updated_feeds} feed güncellendi ve toplam {total_new_entries} yeni yazı bulundu.', 'success')
+    thread_key = "all_feeds"
+    if thread_key in active_threads and active_threads[thread_key].is_alive():
+        flash('Tüm feed\'ler zaten güncelleniyor. İşlem arka planda devam ediyor.', 'info')
+    else:
+        thread = threading.Thread(target=async_fetch_all_feeds)
+        thread.daemon = True  
+        thread.start()
+        
+        active_threads[thread_key] = thread
+        
+        flash('Tüm feed\'lerin güncelleme işlemi başlatıldı. Arka planda devam ediyor.', 'info')
+        logger.info("Tüm feed'ler için asenkron güncelleme başlatıldı")
     
     next_url = request.args.get('next', url_for('feeds'))
     return redirect(next_url)
 
 @app.route('/entries/<int:entry_id>', methods=['GET'])
+@login_required
 def view_entry(entry_id):
     entry = Entry.query.get_or_404(entry_id)
     return render_template('entry.html', entry=entry)
 
 @app.route('/api_keys', methods=['GET'])
+@login_required
 def api_keys():
     keys = APIKey.query.all()
     return render_template('api_keys.html', keys=keys)
 
 @app.route('/api_keys/add', methods=['GET', 'POST'])
+@login_required
 def add_api_key():
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
@@ -904,6 +1189,7 @@ def add_api_key():
     return render_template('add_api_key.html')
 
 @app.route('/api_keys/<int:key_id>/toggle', methods=['POST'])
+@login_required
 def toggle_api_key(key_id):
     key = APIKey.query.get_or_404(key_id)
     
@@ -915,6 +1201,7 @@ def toggle_api_key(key_id):
     return redirect(url_for('api_keys'))
 
 @app.route('/api_keys/<int:key_id>/delete', methods=['POST'])
+@login_required
 def delete_api_key(key_id):
     key = APIKey.query.get_or_404(key_id)
     
@@ -925,11 +1212,13 @@ def delete_api_key(key_id):
     return redirect(url_for('api_keys'))
 
 @app.route('/proxies', methods=['GET'])
+@login_required
 def list_proxies():
     proxies = Proxy.query.all()
     return render_template('proxies.html', proxies=proxies)
 
 @app.route('/proxies/add', methods=['GET', 'POST'])
+@login_required
 def add_proxy():
     if request.method == 'POST':
         host = request.form.get('host', '').strip()
@@ -958,7 +1247,75 @@ def add_proxy():
     
     return render_template('add_proxy.html')
 
+@app.route('/export/opml', methods=['GET'])
+@login_required
+def export_opml():
+    """Kullanıcının feed'lerini OPML formatında dışa aktarır."""
+    try:
+        opml_content = generate_opml()
+        
+        mem_file = io.BytesIO()
+        mem_file.write(opml_content)
+        mem_file.seek(0)
+        
+        filename = f"rss_feeds_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.opml"
+        
+        return send_file(
+            mem_file,
+            mimetype='text/xml',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        logger.error(f"OPML dışa aktarma hatası: {str(e)}")
+        flash(f'OPML dışa aktarma hatası: {str(e)}', 'error')
+        return redirect(url_for('feeds'))
+
+@app.route('/import/opml', methods=['GET', 'POST'])
+@login_required
+def import_opml():
+    """OPML dosyası yükleyerek feed'leri içe aktarma sayfası."""
+    if request.method == 'POST':
+        if 'opml_file' not in request.files:
+            flash('Dosya yüklenmedi', 'error')
+            return redirect(request.url)
+            
+        file = request.files['opml_file']
+        
+        if file.filename == '':
+            flash('Dosya seçilmedi', 'error')
+            return redirect(request.url)
+            
+        if file and file.filename.endswith('.opml'):
+            try:
+                file_content = file.read()
+                
+                stats = process_opml_file(file_content)
+                
+                flash(f'OPML içe aktarma tamamlandı: {stats["imported"]} yeni feed eklendi, '
+                      f'{stats["skipped"]} zaten var olan feed atlandı, '
+                      f'{stats["categories"]} yeni kategori oluşturuldu.', 'success')
+                      
+                if stats["imported"] > 0:
+                    thread = threading.Thread(target=async_fetch_all_feeds)
+                    thread.daemon = True
+                    thread.start()
+                    active_threads["all_feeds"] = thread
+                    flash('Yeni feed\'lerin içerikleri arka planda getirilmeye başlandı.', 'info')
+                
+                return redirect(url_for('feeds'))
+            except Exception as e:
+                logger.error(f"OPML içe aktarma hatası: {str(e)}")
+                flash(f'OPML içe aktarma işlemi sırasında hata oluştu: {str(e)}', 'error')
+                return redirect(request.url)
+        else:
+            flash('Sadece .opml uzantılı dosyalar kabul edilir', 'error')
+            return redirect(request.url)
+            
+    return render_template('import_opml.html')
+
 @app.route('/proxies/<int:proxy_id>/toggle', methods=['POST'])
+@login_required
 def toggle_proxy(proxy_id):
     proxy = Proxy.query.get_or_404(proxy_id)
     
@@ -969,19 +1326,8 @@ def toggle_proxy(proxy_id):
     flash(f'Proxy {status}.', 'success')
     return redirect(url_for('list_proxies'))
 
-@app.route('/proxies/<int:proxy_id>/delete', methods=['POST'])
-def delete_proxy(proxy_id):
-    proxy = Proxy.query.get_or_404(proxy_id)
-    
-    FeedProxy.query.filter_by(proxy_id=proxy_id).delete()
-    
-    db.session.delete(proxy)
-    db.session.commit()
-    
-    flash('Proxy başarıyla silindi.', 'success')
-    return redirect(url_for('list_proxies'))
-
 @app.route('/feeds/<int:feed_id>/proxy', methods=['GET', 'POST'])
+@login_required
 def assign_feed_proxy(feed_id):
     feed = Feed.query.get_or_404(feed_id)
     proxies = Proxy.query.filter_by(is_active=True).all()
@@ -1142,6 +1488,32 @@ def api_entries():
     
     return jsonify(result)
 
+@app.route('/feeds/<int:feed_id>/entries', methods=['GET'])
+@login_required
+def feed_entries(feed_id):
+    feed = Feed.query.get_or_404(feed_id)
+    
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    
+    entries = Entry.query.filter_by(feed_id=feed_id) \
+                .order_by(Entry.published_at.desc()) \
+                .paginate(page=page, per_page=per_page, error_out=False)
+    
+    pagination = {
+        'page': entries.page,
+        'per_page': entries.per_page,
+        'total': entries.total,
+        'pages': entries.pages,
+        'has_next': entries.has_next,
+        'has_prev': entries.has_prev
+    }
+    
+    return render_template('feed_entries.html', 
+                          feed=feed, 
+                          entries=entries.items, 
+                          pagination=pagination)
+
 @app.route('/api/status', methods=['GET'])
 @api_auth_required
 def api_status():
@@ -1169,6 +1541,32 @@ def api_status():
         },
         'update_interval': app.config['FEED_UPDATE_INTERVAL']
     })
+
+@app.route('/api/task_status', methods=['GET'])
+@api_auth_required
+def task_status():
+    status = {}
+    
+    feed_threads = {k: v for k, v in active_threads.items() if k.startswith('feed_')}
+    for thread_key, thread in feed_threads.items():
+        feed_id = int(thread_key.split('_')[1])
+        status[thread_key] = {
+            'feed_id': feed_id,
+            'running': thread.is_alive(),
+            'type': 'single_feed'
+        }
+    
+    if 'all_feeds' in active_threads:
+        status['all_feeds'] = {
+            'running': active_threads['all_feeds'].is_alive(),
+            'type': 'all_feeds'
+        }
+    
+    return jsonify(status)
+
+@app.before_request
+def before_request_thread_cleaner():
+    clean_finished_threads()
 
 _is_first_request = True
 

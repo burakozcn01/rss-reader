@@ -3,7 +3,13 @@
 {% block title %}Feed'ler - RSS Yönetici{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+{% set total_feeds = feeds|length %}
+{% set error_feeds = feeds|selectattr('parsing_error_count', 'gt', 0)|list|length %}
+{% set healthy_feeds = total_feeds - error_feeds %}
+{% set healthy_percentage = (healthy_feeds / total_feeds * 100)|round if total_feeds > 0 else 0 %}
+{% set error_percentage = (error_feeds / total_feeds * 100)|round if total_feeds > 0 else 0 %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
     <h1 class="h3">Feed'ler</h1>
     
     <div>
@@ -14,6 +20,39 @@
         <a href="{{ url_for('add_feed') }}" class="btn btn-primary">
             <i class="fas fa-plus"></i> Feed Ekle
         </a>
+    </div>
+</div>
+
+<div class="feed-status-bar mb-4">
+    <div class="card">
+        <div class="card-body p-3">
+            <div class="d-flex align-items-center">
+                <div class="feed-status-icon me-3">
+                    <i class="fas fa-rss-square fa-2x text-primary"></i>
+                </div>
+                <div>
+                    <div class="h5 mb-0">Toplam {{ total_feeds }} Feed</div>
+                    <div class="feed-status-details">
+                        <span class="badge bg-success me-2">{{ healthy_feeds }} Sorunsuz</span>
+                        {% if error_feeds > 0 %}
+                        <span class="badge bg-danger">{{ error_feeds }} Hatalı</span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="feed-status-progress ms-auto">
+                    {% if total_feeds > 0 %}
+                    <div class="progress" style="width: 150px; height: 10px;">
+                        <div class="progress-bar bg-success" role="progressbar" style="width: {{ healthy_percentage }}%"></div>
+                        {% if error_feeds > 0 %}
+                        <div class="progress-bar bg-danger" role="progressbar" style="width: {{ error_percentage }}%"></div>
+                        {% endif %}
+                    </div>
+                    <div class="text-muted small text-center mt-1">{{ healthy_feeds }}/{{ total_feeds }} çalışıyor</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -30,24 +69,23 @@
             </thead>
             <tbody>
                 {% if feeds %}
-                    {% for feed in feeds %}
-                    <tr {% if feed.disabled %}class="table-secondary"{% endif %}>
+                    {# Önce hatalı feed'leri listele #}
+                    {% for feed in feeds if feed.parsing_error_count > 0 %}
+                    <tr class="table-danger">
                         <td>
                             <div class="d-flex align-items-center">
                                 {% if feed.icon %}
                                     <img src="data:image/png;base64,{{ feed.icon }}" alt="{{ feed.title }}" class="feed-icon">
                                 {% else %}
-                                    <i class="fas fa-rss me-2 text-muted"></i>
+                                    <i class="fas fa-exclamation-circle me-2 text-danger"></i>
                                 {% endif %}
                                 <div>
-                                    <div class="{% if feed.disabled %}text-decoration-line-through{% endif %}">
+                                    <div class="fw-bold {% if feed.disabled %}text-decoration-line-through{% endif %}">
                                         {{ feed.title }}
                                     </div>
-                                    {% if feed.parsing_error_count > 0 %}
                                     <div class="feed-error">
-                                        <small><i class="fas fa-exclamation-triangle"></i> {{ feed.parsing_error_msg|truncate(50) }}</small>
+                                        <small><i class="fas fa-exclamation-triangle"></i> <strong>Hata:</strong> {{ feed.parsing_error_msg|truncate(50) }}</small>
                                     </div>
-                                    {% endif %}
                                 </div>
                             </div>
                         </td>
@@ -66,6 +104,81 @@
                             {% endif %}
                         </td>
                         <td class="text-end">
+                            <a href="{{ url_for('feed_entries', feed_id=feed.id) }}" class="btn btn-sm btn-outline-primary" {% if feed.disabled %}disabled{% endif %}>
+                                <i class="fas fa-list"></i> Akış
+                            </a>
+                            <form action="{{ url_for('refresh_feed', feed_id=feed.id) }}" method="post" class="d-inline-block">
+                                <input type="hidden" name="next" value="{{ request.path }}">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary" {% if feed.disabled %}disabled{% endif %}>
+                                    <i class="fas fa-sync-alt"></i> Yenile
+                                </button>
+                            </form>
+                            <a href="{{ url_for('edit_feed', feed_id=feed.id) }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="fas fa-edit"></i> Düzenle
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteFeed{{ feed.id }}">
+                                <i class="fas fa-trash"></i> Sil
+                            </button>
+                            
+                            <div class="modal fade" id="deleteFeed{{ feed.id }}" tabindex="-1" aria-hidden="true">
+                                <div class="modal-dialog">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Feed Silme Onayı</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p>"{{ feed.title }}" feed'ini silmek istediğinize emin misiniz?</p>
+                                            <p>Bu işlem geri alınamaz ve tüm feed içeriği silinecektir.</p>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                                            <form action="{{ url_for('delete_feed', feed_id=feed.id) }}" method="post">
+                                                <button type="submit" class="btn btn-danger">Feed'i Sil</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    
+                    {# Sonra hatasız feed'leri listele #}
+                    {% for feed in feeds if feed.parsing_error_count == 0 %}
+                    <tr {% if feed.disabled %}class="table-secondary"{% endif %}>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                {% if feed.icon %}
+                                    <img src="data:image/png;base64,{{ feed.icon }}" alt="{{ feed.title }}" class="feed-icon">
+                                {% else %}
+                                    <i class="fas fa-rss me-2 text-muted"></i>
+                                {% endif %}
+                                <div>
+                                    <div class="{% if feed.disabled %}text-decoration-line-through{% endif %}">
+                                        {{ feed.title }}
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            {% if feed.category %}
+                                <span class="badge bg-info">{{ feed.category.title }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if feed.checked_at %}
+                                <small class="text-muted">{{ feed.checked_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <a href="{{ url_for('feed_entries', feed_id=feed.id) }}" class="btn btn-sm btn-outline-primary" {% if feed.disabled %}disabled{% endif %}>
+                                <i class="fas fa-list"></i> Akış
+                            </a>
                             <form action="{{ url_for('refresh_feed', feed_id=feed.id) }}" method="post" class="d-inline-block">
                                 <input type="hidden" name="next" value="{{ request.path }}">
                                 <button type="submit" class="btn btn-sm btn-outline-secondary" {% if feed.disabled %}disabled{% endif %}>
@@ -115,6 +228,12 @@
     </div>
 </div>
 
+{% if feeds and error_feeds > 0 %}
+<div class="alert alert-warning mt-3">
+    <i class="fas fa-exclamation-triangle"></i> <strong>Dikkat:</strong> {{ error_feeds }} feed'de hata var. Feed'i düzenleyerek URL'yi kontrol edebilir veya yenile butonuna tıklayarak tekrar deneyebilirsiniz.
+</div>
+{% endif %}
+
 <div class="card mt-4">
     <div class="card-header">
         <h2 class="h5 mb-0">API Kullanımı - Feed'ler</h2>
@@ -133,4 +252,36 @@
         <p class="text-muted small mt-2">Opsiyonel parametreler: page, per_page</p>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Hatalı feed satırlarına efekt ekle */
+    .table-danger {
+        border-left: 5px solid #dc3545;
+    }
+    
+    .feed-error {
+        color: #dc3545;
+        font-weight: 500;
+    }
+    
+    .feed-status-bar .card {
+        border-left: 4px solid #0d6efd;
+    }
+    
+    .feed-status-details {
+        margin-top: 4px;
+    }
+    
+    .feed-status-progress .progress {
+        border-radius: 50px;
+        background-color: #e9ecef;
+        overflow: hidden;
+    }
+    
+    .feed-status-progress .progress-bar {
+        border-radius: 0;
+    }
+</style>
 {% endblock %}

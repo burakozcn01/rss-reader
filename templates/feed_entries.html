@@ -1,0 +1,98 @@
+<!-- feed_entries.html -->
+{% extends "base.html" %}
+{% block title %}{{ feed.title }} Akışı - RSS Yönetici{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3">{{ feed.title }} Akışı</h1>
+        {% if feed.category %}
+            <span class="badge bg-info">{{ feed.category.title }}</span>
+        {% endif %}
+    </div>
+    
+    <div>
+        <form action="{{ url_for('refresh_feed', feed_id=feed.id) }}" method="post" class="d-inline-block">
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <button type="submit" class="btn btn-outline-secondary me-2">
+                <i class="fas fa-sync-alt"></i> Yenile
+            </button>
+        </form>
+        <a href="{{ url_for('feeds') }}" class="btn btn-outline-primary">
+            <i class="fas fa-arrow-left"></i> Feed Listesine Dön
+        </a>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="h5 mb-0">Yazılar</h2>
+        <div>
+            <small class="text-muted">Toplam: {{ pagination.total }}</small>
+        </div>
+    </div>
+    <div class="list-group list-group-flush">
+        {% if entries %}
+            {% for entry in entries %}
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <h3 class="h5 mb-1">
+                            <a href="{{ url_for('view_entry', entry_id=entry.id) }}" class="text-decoration-none">
+                                {{ entry.title }}
+                            </a>
+                        </h3>
+                        <a href="{{ entry.url }}" target="_blank" class="btn btn-sm btn-outline-secondary ms-2" title="Orijinal kaynağa git">
+                            <i class="fas fa-external-link-alt"></i>
+                        </a>
+                    </div>
+                    
+                    <div class="text-muted small mb-2">
+                        <span><i class="far fa-clock"></i> {{ entry.published_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                        
+                        {% if entry.author %}
+                            <span class="ms-3"><i class="far fa-user"></i> {{ entry.author }}</span>
+                        {% endif %}
+                    </div>
+                    
+                    <a href="{{ url_for('view_entry', entry_id=entry.id) }}" class="btn btn-sm btn-primary mt-2">
+                        Detayı Gör
+                    </a>
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="list-group-item text-center py-4">
+                <p class="mb-0">Bu feed için henüz yazı bulunmuyor.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if pagination.pages > 1 %}
+<nav aria-label="Sayfalama">
+    <ul class="pagination justify-content-center">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('feed_entries', feed_id=feed.id, page=pagination.page-1) }}" aria-label="Önceki">
+                <span aria-hidden="true">&laquo;</span>
+            </a>
+        </li>
+        
+        {% set start_page = [1, pagination.page - 2]|max %}
+        {% set end_page = [start_page + 4, pagination.pages]|min %}
+        {% set start_page = [end_page - 4, 1]|max %}
+        
+        {% for p in range(start_page, end_page + 1) %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+                <a class="page-link" href="{{ url_for('feed_entries', feed_id=feed.id, page=p) }}">{{ p }}</a>
+            </li>
+        {% endfor %}
+        
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('feed_entries', feed_id=feed.id, page=pagination.page+1) }}" aria-label="Sonraki">
+                <span aria-hidden="true">&raquo;</span>
+            </a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+
+{% endblock %}

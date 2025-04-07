@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block title %}OPML İçe Aktar{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">OPML İçe Aktar</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Anasayfa</a></li>
+        <li class="breadcrumb-item"><a href="{{ url_for('feeds') }}">Feed'ler</a></li>
+        <li class="breadcrumb-item active">OPML İçe Aktar</li>
+    </ol>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="fas fa-file-import me-1"></i>
+            OPML Dosya Yükleme
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info" role="alert">
+                <i class="fas fa-info-circle"></i> OPML dosyası yükleyerek Miniflux veya diğer RSS okuyuculardan feed aboneliklerinizi kolayca içe aktarabilirsiniz.
+            </div>
+            
+            <form method="post" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <label for="opml_file" class="form-label">OPML Dosyası</label>
+                    <input class="form-control" type="file" id="opml_file" name="opml_file" accept=".opml,text/xml" required>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-upload"></i> İçe Aktar
+                </button>
+                <a href="{{ url_for('feeds') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Geri
+                </a>
+            </form>
+            
+            <hr>
+            
+            <div class="mt-4">
+                <h5>OPML Dosyası Nedir?</h5>
+                <p>OPML (Outline Processor Markup Language), RSS feed aboneliklerini içeren standart bir XML dosya formatıdır. Çoğu RSS okuyucu programı (Miniflux dahil) aboneliklerinizi OPML formatında dışa aktarmanıza olanak tanır.</p>
+                
+                <h5>Miniflux'tan OPML Nasıl Dışa Aktarılır?</h5>
+                <ol>
+                    <li>Miniflux'ta, "Settings" (Ayarlar) sayfasına gidin</li>
+                    <li>"Export" veya "OPML Export" seçeneğini bulun</li>
+                    <li>OPML dosyasını indirin</li>
+                    <li>Bu sayfada indirdiğiniz OPML dosyasını yükleyin</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
