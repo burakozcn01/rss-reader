@@ -1,0 +1,86 @@
+<!-- entry.html -->
+{% extends "base.html" %}
+{% block title %}{{ entry.title }} - RSS Yönetici{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="h5 mb-0">{{ entry.title }}</h1>
+                    <div class="text-muted small">
+                        {% if entry.feed.category %}
+                        <span class="badge bg-info category-badge me-1">{{ entry.feed.category.title }}</span>
+                        {% endif %}
+                        <span class="me-2">{{ entry.feed.title }}</span>
+                        <span class="me-2">
+                            <i class="far fa-clock"></i> {{ entry.published_at.strftime('%d.%m.%Y %H:%M') }}
+                        </span>
+                        {% if entry.author %}
+                        <span>
+                            <i class="far fa-user"></i> {{ entry.author }}
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div>
+                    <a href="{{ entry.url }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-external-link-alt"></i> Kaynağa Git
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="entry-content">
+                    {{ entry.content|safe }}
+                </div>
+            </div>
+            <div class="card-footer">
+                <a href="{{ url_for('feeds') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Feed Listesine Dön
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h2 class="h5 mb-0">API Kullanımı - Yazı Detayı</h2>
+    </div>
+    <div class="card-body">
+        <h3 class="h6">Yazı detayını getir</h3>
+        <div class="bg-light p-3 rounded">
+            <code>GET /api/entries/{{ entry.id }}</code>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const entryContent = document.querySelector('.entry-content');
+    
+    const images = entryContent.querySelectorAll('img');
+    images.forEach(img => {
+        img.classList.add('img-fluid');
+        img.loading = 'lazy';
+    });
+    
+    const links = entryContent.querySelectorAll('a');
+    links.forEach(link => {
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+    });
+    
+    const iframes = entryContent.querySelectorAll('iframe');
+    iframes.forEach(iframe => {
+        const wrapper = document.createElement('div');
+        wrapper.classList.add('ratio', 'ratio-16x9', 'my-3');
+        iframe.parentNode.insertBefore(wrapper, iframe);
+        wrapper.appendChild(iframe);
+    });
+});
+</script>
+{% endblock %}

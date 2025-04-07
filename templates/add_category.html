@@ -1,0 +1,28 @@
+<!-- add_category.html -->
+{% extends "base.html" %}
+{% block title %}Kategori Ekle - RSS Yönetici{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h1 class="h5 mb-0">Kategori Ekle</h1>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="title" class="form-label">Kategori Adı</label>
+                        <input type="text" class="form-control" id="title" name="title" required autofocus>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('categories') }}" class="btn btn-outline-secondary">İptal</a>
+                        <button type="submit" class="btn btn-primary">Kaydet</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,139 @@
+<!-- api_keys.html -->
+{% extends "base.html" %}
+{% block title %}API Anahtarları - RSS Yönetici{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3">API Anahtarları</h1>
+    <a href="{{ url_for('add_api_key') }}" class="btn btn-primary">
+        <i class="fas fa-plus"></i> Yeni API Anahtarı
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="h6 mb-0">API Anahtarı Listesi</h2>
+    </div>
+    <ul class="list-group list-group-flush">
+        {% if keys %}
+            {% for key in keys %}
+                <li class="list-group-item {% if not key.is_active %}inactive-key{% endif %}">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <h3 class="h6 mb-0">{{ key.name }}</h3>
+                            <small class="text-muted">
+                                Oluşturulma: {{ key.created_at.strftime('%d.%m.%Y %H:%M') }}
+                                {% if key.last_used %}
+                                | Son kullanım: {{ key.last_used.strftime('%d.%m.%Y %H:%M') }}
+                                {% endif %}
+                            </small>
+                        </div>
+                        <div>
+                            <form action="{{ url_for('toggle_api_key', key_id=key.id) }}" method="post" class="d-inline">
+                                <button type="submit" class="btn btn-sm {% if key.is_active %}btn-outline-warning{% else %}btn-outline-success{% endif %}">
+                                    <i class="fas fa-{% if key.is_active %}pause{% else %}play{% endif %}"></i>
+                                    {% if key.is_active %}Devre Dışı Bırak{% else %}Etkinleştir{% endif %}
+                                </button>
+                            </form>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteApiKey{{ key.id }}">
+                                <i class="fas fa-trash"></i> Sil
+                            </button>
+                        </div>
+                    </div>
+                    <div class="api-key">
+                        <code>{{ key.key }}</code>
+                        <button class="copy-btn" onclick="copyApiKey('{{ key.key }}')">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="modal fade" id="deleteApiKey{{ key.id }}" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">API Anahtarı Silme Onayı</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <p>"{{ key.name }}" API anahtarını silmek istediğinize emin misiniz?</p>
+                                    <p>Bu işlem geri alınamaz ve bu anahtarla yapılan tüm API çağrıları artık çalışmayacaktır.</p>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                                    <form action="{{ url_for('delete_api_key', key_id=key.id) }}" method="post">
+                                        <button type="submit" class="btn btn-danger">API Anahtarını Sil</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </li>
+            {% endfor %}
+        {% else %}
+            <li class="list-group-item text-center py-4">
+                <p class="mb-2">Henüz API anahtarı bulunmuyor.</p>
+                <a href="{{ url_for('add_api_key') }}" class="btn btn-primary">Yeni API Anahtarı Oluştur</a>
+            </li>
+        {% endif %}
+    </ul>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h2 class="h5 mb-0">API Kullanımı</h2>
+    </div>
+    <div class="card-body">
+        <p>Tüm API isteklerinde <code>X-API-Key</code> başlığı kullanarak anahtarınızı göndermeniz gerekir:</p>
+        
+        <h3 class="h6 mt-3">Örnek istek:</h3>
+        <div class="bg-light p-3 rounded">
+            <pre><code>curl -H "X-API-Key: API_ANAHTARINIZ" {{ request.host_url }}api/feeds</code></pre>
+        </div>
+        
+        <h3 class="h6 mt-3">Kullanılabilir API Endpoint'leri:</h3>
+        <ul>
+            <li><code>GET /api/status</code> - API durumu</li>
+            <li><code>GET /api/categories</code> - Tüm kategorileri listele</li>
+            <li><code>GET /api/feeds</code> - Tüm feed'leri listele</li>
+            <li><code>GET /api/feeds/{feed_id}/entries</code> - Feed yazılarını getir</li>
+            <li><code>GET /api/categories/{category_id}/entries</code> - Kategori yazılarını getir</li>
+            <li><code>GET /api/entries</code> - Tüm yazıları getir</li>
+            <li><code>GET /api/entries/{entry_id}</code> - Yazı detayını getir</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function copyApiKey(key) {
+    navigator.clipboard.writeText(key).then(function() {
+        const toast = document.createElement('div');
+        toast.className = 'toast align-items-center text-white bg-success';
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+        toast.setAttribute('aria-atomic', 'true');
+        
+        toast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">
+                    API anahtarı panoya kopyalandı!
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Kapat"></button>
+            </div>
+        `;
+        
+        document.querySelector('.toast-container').appendChild(toast);
+        
+        const bsToast = new bootstrap.Toast(toast, { delay: 2000 });
+        bsToast.show();
+        
+        toast.addEventListener('hidden.bs.toast', function() {
+            toast.remove();
+        });
+    }, function() {
+        alert('API anahtarı kopyalanamadı.');
+    });
+}
+</script>
+{% endblock %}

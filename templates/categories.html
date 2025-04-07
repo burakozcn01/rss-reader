@@ -1,0 +1,89 @@
+<!-- categories.html -->
+{% extends "base.html" %}
+{% block title %}Kategoriler - RSS Yönetici{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3">Kategoriler</h1>
+    <a href="{{ url_for('add_category') }}" class="btn btn-primary">
+        <i class="fas fa-plus"></i> Kategori Ekle
+    </a>
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Kategori</th>
+                    <th class="text-center">Feed Sayısı</th>
+                    <th class="text-end">İşlemler</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if categories %}
+                    {% for category in categories %}
+                    <tr>
+                        <td>{{ category.title }}</td>
+                        <td class="text-center">{{ category.feeds|length }}</td>
+                        <td class="text-end">
+                            <a href="{{ url_for('edit_category', category_id=category.id) }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="fas fa-edit"></i> Düzenle
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteCategory{{ category.id }}">
+                                <i class="fas fa-trash"></i> Sil
+                            </button>
+                            
+                            <div class="modal fade" id="deleteCategory{{ category.id }}" tabindex="-1" aria-hidden="true">
+                                <div class="modal-dialog">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Kategori Silme Onayı</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p>"{{ category.title }}" kategorisini silmek istediğinize emin misiniz?</p>
+                                            <p>Bu kategorideki feed'ler silinmeyecek, kategorisiz olarak kalacaktır.</p>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                                            <form action="{{ url_for('delete_category', category_id=category.id) }}" method="post">
+                                                <button type="submit" class="btn btn-danger">Kategoriyi Sil</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="3" class="text-center py-4">
+                            <p class="mb-0">Henüz kategori bulunmuyor.</p>
+                        </td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h2 class="h5 mb-0">API Kullanımı - Kategoriler</h2>
+    </div>
+    <div class="card-body">
+        <h3 class="h6">Tüm kategorileri listele</h3>
+        <div class="bg-light p-3 rounded mb-3">
+            <code>GET /api/categories</code>
+        </div>
+        
+        <h3 class="h6">Kategori yazılarını getir</h3>
+        <div class="bg-light p-3 rounded">
+            <code>GET /api/categories/{category_id}/entries</code>
+        </div>
+        <p class="text-muted small mt-2">Opsiyonel parametreler: page, per_page</p>
+    </div>
+</div>
+{% endblock %}

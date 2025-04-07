@@ -1,0 +1,136 @@
+<!-- feeds.html -->
+{% extends "base.html" %}
+{% block title %}Feed'ler - RSS Yönetici{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3">Feed'ler</h1>
+    
+    <div>
+        <a href="{{ url_for('feeds') }}{% if show_disabled %}?show_disabled=0{% else %}?show_disabled=1{% endif %}" class="btn btn-outline-secondary me-2">
+            <i class="fas fa-{% if show_disabled %}eye-slash{% else %}eye{% endif %}"></i> 
+            {% if show_disabled %}Pasif Feed'leri Gizle{% else %}Pasif Feed'leri Göster{% endif %}
+        </a>
+        <a href="{{ url_for('add_feed') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Feed Ekle
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Feed</th>
+                    <th>Kategori</th>
+                    <th class="text-center">Son Kontrol</th>
+                    <th class="text-end">İşlemler</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if feeds %}
+                    {% for feed in feeds %}
+                    <tr {% if feed.disabled %}class="table-secondary"{% endif %}>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                {% if feed.icon %}
+                                    <img src="data:image/png;base64,{{ feed.icon }}" alt="{{ feed.title }}" class="feed-icon">
+                                {% else %}
+                                    <i class="fas fa-rss me-2 text-muted"></i>
+                                {% endif %}
+                                <div>
+                                    <div class="{% if feed.disabled %}text-decoration-line-through{% endif %}">
+                                        {{ feed.title }}
+                                    </div>
+                                    {% if feed.parsing_error_count > 0 %}
+                                    <div class="feed-error">
+                                        <small><i class="fas fa-exclamation-triangle"></i> {{ feed.parsing_error_msg|truncate(50) }}</small>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            {% if feed.category %}
+                                <span class="badge bg-info">{{ feed.category.title }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if feed.checked_at %}
+                                <small class="text-muted">{{ feed.checked_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <form action="{{ url_for('refresh_feed', feed_id=feed.id) }}" method="post" class="d-inline-block">
+                                <input type="hidden" name="next" value="{{ request.path }}">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary" {% if feed.disabled %}disabled{% endif %}>
+                                    <i class="fas fa-sync-alt"></i> Yenile
+                                </button>
+                            </form>
+                            <a href="{{ url_for('edit_feed', feed_id=feed.id) }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="fas fa-edit"></i> Düzenle
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteFeed{{ feed.id }}">
+                                <i class="fas fa-trash"></i> Sil
+                            </button>
+                            
+                            <div class="modal fade" id="deleteFeed{{ feed.id }}" tabindex="-1" aria-hidden="true">
+                                <div class="modal-dialog">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Feed Silme Onayı</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p>"{{ feed.title }}" feed'ini silmek istediğinize emin misiniz?</p>
+                                            <p>Bu işlem geri alınamaz ve tüm feed içeriği silinecektir.</p>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                                            <form action="{{ url_for('delete_feed', feed_id=feed.id) }}" method="post">
+                                                <button type="submit" class="btn btn-danger">Feed'i Sil</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="4" class="text-center py-4">
+                            <p class="mb-2">Henüz feed bulunmuyor.</p>
+                            <a href="{{ url_for('add_feed') }}" class="btn btn-primary">Feed Ekle</a>
+                        </td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h2 class="h5 mb-0">API Kullanımı - Feed'ler</h2>
+    </div>
+    <div class="card-body">
+        <h3 class="h6">Tüm feed'leri listele</h3>
+        <div class="bg-light p-3 rounded mb-3">
+            <code>GET /api/feeds</code>
+        </div>
+        <p class="text-muted small mt-2">Opsiyonel parametreler: category_id</p>
+        
+        <h3 class="h6">Feed yazılarını getir</h3>
+        <div class="bg-light p-3 rounded">
+            <code>GET /api/feeds/{feed_id}/entries</code>
+        </div>
+        <p class="text-muted small mt-2">Opsiyonel parametreler: page, per_page</p>
+    </div>
+</div>
+{% endblock %}

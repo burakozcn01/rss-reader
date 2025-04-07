@@ -1,0 +1,39 @@
+<!-- assign_proxy.html -->
+{% extends "base.html" %}
+{% block title %}Feed Proxy Ataması - RSS Yönetici{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h1 class="h5 mb-0">Feed Proxy Ataması: {{ feed.title }}</h1>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="proxy_id" class="form-label">Proxy Seçin</label>
+                        <select class="form-select" id="proxy_id" name="proxy_id">
+                            <option value="0">Varsayılan proxy havuzunu kullan</option>
+                            {% for proxy in proxies %}
+                            <option value="{{ proxy.id }}" {% if current_proxy_id == proxy.id %}selected{% endif %}>
+                                {{ proxy.host }}:{{ proxy.port }} ({{ proxy.proxy_type }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <p class="mb-0"><i class="fas fa-info-circle me-2"></i> Belirli bir proxy seçerek, bu feed sadece seçilen proxy üzerinden erişecektir. "Varsayılan proxy havuzu" seçilirse, aktif proxy'ler arasında otomatik rotasyon uygulanır.</p>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('edit_feed', feed_id=feed.id) }}" class="btn btn-outline-secondary">İptal</a>
+                        <button type="submit" class="btn btn-primary">Proxy Ata</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

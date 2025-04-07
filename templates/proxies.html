@@ -1,0 +1,118 @@
+<!-- proxies.html -->
+{% extends "base.html" %}
+{% block title %}Proxy Yönetimi - RSS Yönetici{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3">Proxy Yönetimi</h1>
+    <a href="{{ url_for('add_proxy') }}" class="btn btn-primary">
+        <i class="fas fa-plus"></i> Proxy Ekle
+    </a>
+</div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Host:Port</th>
+                    <th>Tür</th>
+                    <th>Kimlik</th>
+                    <th>Durum</th>
+                    <th>Son Kullanım</th>
+                    <th>Hata Sayısı</th>
+                    <th class="text-end">İşlemler</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if proxies %}
+                    {% for proxy in proxies %}
+                    <tr {% if not proxy.is_active %}class="table-secondary"{% endif %}>
+                        <td>{{ proxy.host }}:{{ proxy.port }}</td>
+                        <td>{{ proxy.proxy_type }}</td>
+                        <td>
+                            {% if proxy.username %}
+                            <small class="text-muted">{{ proxy.username }}</small>
+                            {% else %}
+                            <small class="text-muted">-</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if proxy.is_active %}
+                            <span class="badge bg-success">Aktif</span>
+                            {% else %}
+                            <span class="badge bg-danger">Pasif</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if proxy.last_used %}
+                            <small>{{ proxy.last_used.strftime('%d.%m.%Y %H:%M') }}</small>
+                            {% else %}
+                            <small class="text-muted">-</small>
+                            {% endif %}
+                        </td>
+                        <td>{{ proxy.error_count }}</td>
+                        <td class="text-end">
+                            <form action="{{ url_for('toggle_proxy', proxy_id=proxy.id) }}" method="post" class="d-inline-block">
+                                <button type="submit" class="btn btn-sm {% if proxy.is_active %}btn-outline-warning{% else %}btn-outline-success{% endif %}">
+                                    <i class="fas fa-{% if proxy.is_active %}pause{% else %}play{% endif %}"></i>
+                                </button>
+                            </form>
+                            <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteProxy{{ proxy.id }}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            
+                            <div class="modal fade" id="deleteProxy{{ proxy.id }}" tabindex="-1" aria-hidden="true">
+                                <div class="modal-dialog">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Proxy Silme Onayı</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Kapat"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <p>{{ proxy.host }}:{{ proxy.port }} proxy'sini silmek istediğinize emin misiniz?</p>
+                                            <p>Bu proxy'i kullanan feed'ler varsayılan proxy havuzunu kullanacaktır.</p>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                                            <form action="{{ url_for('delete_proxy', proxy_id=proxy.id) }}" method="post">
+                                                <button type="submit" class="btn btn-danger">Proxy'i Sil</button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4">
+                            <p class="mb-0">Henüz proxy bulunmuyor.</p>
+                        </td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h2 class="h5 mb-0">Proxy Kullanımı Hakkında</h2>
+    </div>
+    <div class="card-body">
+        <p>Proxy'ler, RSS kaynaklarına erişirken IP kısıtlamalarını atlatmak, gizliliği artırmak ve bot tespitlerini önlemek için kullanılır.</p>
+        
+        <div class="alert alert-info mb-0">
+            <strong>İpuçları:</strong>
+            <ul class="mb-0">
+                <li>Her feed için belirli bir proxy atayabilir veya genel proxy havuzunu kullanabilirsiniz.</li>
+                <li>Aktif olmayan proxy'ler kullanılmaz.</li>
+                <li>Çok sayıda hata alan proxy'ler otomatik olarak devre dışı bırakılır.</li>
+                <li>HTTP, SOCKS4 ve SOCKS5 proxy türleri desteklenir.</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

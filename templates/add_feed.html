@@ -1,0 +1,38 @@
+<!-- add_feed.html -->
+{% extends "base.html" %}
+{% block title %}Feed Ekle - RSS Yönetici{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h1 class="h5 mb-0">Feed Ekle</h1>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    <div class="mb-3">
+                        <label for="feed_url" class="form-label">Feed URL (RSS/Atom)</label>
+                        <input type="url" class="form-control" id="feed_url" name="feed_url" required autofocus placeholder="https://example.com/feed.xml">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="category_id" class="form-label">Kategori</label>
+                        <select class="form-select" id="category_id" name="category_id">
+                            <option value="">Kategorisiz</option>
+                            {% for category in categories %}
+                            <option value="{{ category.id }}">{{ category.title }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('feeds') }}" class="btn btn-outline-secondary">İptal</a>
+                        <button type="submit" class="btn btn-primary">Feed Ekle</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
